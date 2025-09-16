@@ -1,0 +1,8 @@
+{
+  "extends": "solhint:recommended",
+  "rules": {
+    "import-path-check": "off",
+    "func-visibility": ["error", {"ignoreConstructors": true}],
+    "no-empty-blocks": "off"
+  }
+}
