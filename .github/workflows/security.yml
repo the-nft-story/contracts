@@ -1,0 +1,111 @@
+name: Security Analysis
+
+on:
+  workflow_dispatch:
+  schedule:
+    # Run weekly security scans on Sundays at 3 AM UTC
+    - cron: '0 3 * * 0'
+
+env:
+  FOUNDRY_PROFILE: ci
+
+jobs:
+  slither-analysis:
+    name: Slither Security Analysis
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Install Foundry
+        uses: foundry-rs/foundry-toolchain@v1
+        with:
+          version: stable
+
+      - name: Install dependencies
+        run: forge install
+
+      - name: Build contracts
+        run: forge build
+
+      - name: Run Slither analysis
+        uses: crytic/slither-action@v0.3.0
+        continue-on-error: true
+        id: slither
+        with:
+          target: ./
+          slither-config: slither.config.json
+          fail-on: none
+          slither-args: --filter-paths "lib/" --exclude-dependencies
+
+      - name: Create Slither report
+        run: |
+          slither . --json slither-report.json --config-file slither.config.json || true
+          if [ -f slither-report.json ]; then
+            echo "Slither analysis completed. Report generated."
+          else
+            echo "Slither analysis failed to generate report."
+          fi
+
+      - name: Upload Slither report
+        uses: actions/upload-artifact@v3
+        if: always()
+        with:
+          name: slither-report
+          path: slither-report.json
+
+      - name: Comment security summary
+        uses: actions/github-script@v6
+        if: github.event_name == 'pull_request'
+        with:
+          script: |
+            const fs = require('fs');
+
+            let summary = '## 🛡️ Security Analysis Summary\n\n';
+
+            try {
+              const report = JSON.parse(fs.readFileSync('slither-report.json', 'utf8'));
+              const detectors = report.results?.detectors || [];
+
+              const high = detectors.filter(d => d.impact === 'High').length;
+              const medium = detectors.filter(d => d.impact === 'Medium').length;
+              const low = detectors.filter(d => d.impact === 'Low').length;
+              const info = detectors.filter(d => d.impact === 'Informational').length;
+
+              summary += `- **High**: ${high} issues\n`;
+              summary += `- **Medium**: ${medium} issues\n`;
+              summary += `- **Low**: ${low} issues\n`;
+              summary += `- **Informational**: ${info} issues\n\n`;
+
+              if (high > 0 || medium > 0) {
+                summary += '⚠️ **Action Required**: Please review and address high/medium severity findings.\n\n';
+              } else {
+                summary += '✅ **No critical issues found** - All findings are low severity or informational.\n\n';
+              }
+
+              summary += 'Full report available in the Slither analysis artifact.\n';
+
+            } catch (error) {
+              summary += '❌ Unable to parse Slither report. Check the workflow logs for details.\n';
+            }
+
+            github.rest.issues.createComment({
+              issue_number: context.issue.number,
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              body: summary
+            });
+
+  dependency-review:
+    name: Dependency Review
+    runs-on: ubuntu-latest
+    if: github.event_name == 'pull_request'
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Dependency Review
+        uses: actions/dependency-review-action@v3
+        with:
+          fail-on-severity: moderate
