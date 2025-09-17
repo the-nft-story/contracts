@@ -1,4 +1,4 @@
-name: Build and Test
+name: CI
 
 on:
   push:
@@ -19,7 +19,7 @@ jobs:
     strategy:
       fail-fast: true
 
-    name: Build and Test
+    name: Check Pipeline
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
