@@ -1,0 +1,129 @@
+name: Claude Auto-Approve
+
+on:
+  issue_comment:
+    types: [created]
+
+jobs:
+  claude-auto-approve:
+    name: Claude Auto-Approve PR
+    runs-on: ubuntu-latest
+    if: |
+      github.event.issue.pull_request &&
+      github.event.comment.user.login == github.repository_owner &&
+      (contains(github.event.comment.body, '@claude approve') ||
+       contains(github.event.comment.body, '/claude-approve'))
+
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Get PR details
+        id: pr
+        uses: actions/github-script@v8
+        with:
+          script: |
+            const { data: pr } = await github.rest.pulls.get({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              pull_number: context.issue.number,
+            });
+            return pr;
+
+      - name: Run Claude Analysis for Approval
+        uses: anthropics/claude-code-action@v1
+        id: claude-analysis
+        with:
+          anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
+          claude_args: |
+            Analyze this PR for auto-approval. You are acting as a code reviewer.
+
+            ## Approval Criteria
+            Check if this PR meets these standards:
+
+            ### ✅ Code Quality
+            - Code follows project conventions and style
+            - No obvious bugs or logical errors
+            - Proper error handling and edge cases
+            - Clean, readable implementation
+
+            ### ✅ Security Standards
+            - No security vulnerabilities introduced
+            - Proper input validation
+            - Safe external interactions
+            - Access controls maintained
+
+            ### ✅ Testing Requirements
+            - Adequate test coverage for new code
+            - Tests pass and are well-structured
+            - Edge cases covered appropriately
+
+            ### ✅ Documentation
+            - Code is properly documented
+            - Breaking changes noted
+            - README updated if needed
+
+            ## Response Format
+            Respond with exactly one of these:
+            - "APPROVE: [brief reason]" - if PR meets all criteria
+            - "REQUEST_CHANGES: [specific issues]" - if PR needs work
+            - "NEEDS_REVIEW: [complex areas requiring human review]" - if human review needed
+
+            Be thorough but practical. This is for a solo developer who needs reliable automation.
+
+      - name: Auto-approve if Claude recommends
+        uses: actions/github-script@v8
+        if: startsWith(steps.claude-analysis.outputs.result, 'APPROVE:')
+        with:
+          script: |
+            await github.rest.pulls.createReview({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              pull_number: context.issue.number,
+              event: 'APPROVE',
+              body: `🤖 **Auto-Approved by Claude**
+
+              ${steps.claude-analysis.outputs.result}
+
+              ✅ **Automated Analysis Passed**:
+              - Code quality standards met
+              - Security review completed
+              - Testing requirements satisfied
+              - Documentation adequate
+
+              This PR has been automatically approved based on Claude's comprehensive analysis.`
+            });
+
+      - name: Request changes if Claude finds issues
+        uses: actions/github-script@v8
+        if: startsWith(steps.claude-analysis.outputs.result, 'REQUEST_CHANGES:')
+        with:
+          script: |
+            await github.rest.pulls.createReview({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              pull_number: context.issue.number,
+              event: 'REQUEST_CHANGES',
+              body: `🛠️ **Changes Requested by Claude**
+
+              ${steps.claude-analysis.outputs.result}
+
+              Please address the issues identified above and request review again with \`@claude approve\`.`
+            });
+
+      - name: Comment if human review needed
+        uses: actions/github-script@v8
+        if: startsWith(steps.claude-analysis.outputs.result, 'NEEDS_REVIEW:')
+        with:
+          script: |
+            await github.rest.issues.createComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.issue.number,
+              body: `👨‍💻 **Human Review Required**
+
+              ${steps.claude-analysis.outputs.result}
+
+              This PR contains complex changes that require manual review. Claude cannot auto-approve at this time.`
+            });
