@@ -30,7 +30,7 @@ jobs:
         run: forge build
 
       - name: Run Slither analysis
-        uses: crytic/slither-action@v0.3.0
+        uses: crytic/slither-action@v0.4.1
         continue-on-error: true
         id: slither
         with:
