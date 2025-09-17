@@ -1,10 +1,10 @@
-name: Contracts CI
+name: Build and Test
 
 on:
   push:
-    branches: [main, develop]
+    branches: [main, feature/*]
   pull_request:
-    branches: [main, develop]
+    branches: [main, feature/*]
 
 permissions:
   contents: read
@@ -19,7 +19,7 @@ jobs:
     strategy:
       fail-fast: true
 
-    name: Foundry project
+    name: Build and Test
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -34,23 +34,23 @@ jobs:
       - name: Install dependencies
         run: forge install
 
-      - name: Run Forge fmt check
+      - name: Check formatting
         run: |
           forge fmt --check
         id: format
 
-      - name: Run Forge build
+      - name: Build project
         run: |
           forge --version
           forge build --sizes
         id: build
 
-      - name: Run Forge tests
+      - name: Run tests
         run: |
           forge test -vvv --gas-report
         id: test
 
-      - name: Run Forge coverage
+      - name: Generate coverage report
         run: |
           forge coverage --report lcov
         id: coverage
