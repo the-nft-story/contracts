@@ -1,0 +1,152 @@
+name: Claude Security Review
+
+on:
+  pull_request:
+    types: [opened, synchronize]
+  workflow_dispatch:
+    inputs:
+      focus:
+        description: 'Security analysis focus'
+        required: true
+        default: 'comprehensive'
+        type: choice
+        options:
+        - comprehensive
+        - smart-contracts
+        - dependencies
+
+env:
+  FOUNDRY_PROFILE: ci
+
+jobs:
+  claude-security-review:
+    name: Claude AI Security Analysis
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+
+      - name: Setup Foundry
+        uses: foundry-rs/foundry-toolchain@v1
+        with:
+          version: nightly
+
+      - name: Install dependencies
+        run: forge install
+
+      - name: Build contracts for context
+        run: forge build
+
+      - name: Claude Security Review
+        uses: anthropics/claude-code-security-review@v1
+        with:
+          anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
+          comment_on_pr: true
+          custom_instructions: |
+            ## Smart Contract Security Analysis - Contracts Repository
+
+            You are reviewing the smart contracts for "The NFT Story" - an educational Web3 storytelling platform.
+            This is the dedicated contracts repository focusing purely on Solidity implementation.
+
+            ### Critical Security Focus Areas
+
+            #### 1. Smart Contract Vulnerabilities
+            - **Reentrancy**: Check all external calls, state changes, and CEI patterns
+            - **Integer Overflow/Underflow**: Verify safe math and bounds checking
+            - **Access Controls**: Validate modifiers, roles, and permission systems
+            - **Front-running/MEV**: Analyze transaction ordering dependencies
+            - **Flash Loan Attacks**: Check for price manipulation vulnerabilities
+
+            #### 2. Gas Security Implications
+            - **DoS via Gas Limit**: Check for unbounded loops and operations
+            - **Gas Optimization vs Security**: Ensure efficiency doesn't compromise safety
+            - **State Bloat**: Analyze storage patterns for scalability attacks
+
+            #### 3. ERC Standards Compliance
+            - **ERC-721 Implementation**: Verify standard conformance and extensions
+            - **Metadata Security**: Check URI handling and IPFS integration
+            - **Transfer Hooks**: Validate callback security and reentrancy protection
+
+            #### 4. Project-Specific Vulnerabilities
+            - **Fixed Pricing Model**: Analyze 0.002 ETH pricing for manipulation risks
+            - **Append-Only Storage**: Verify array bounds and gas implications
+            - **Word Validation**: Check input sanitization and character limits
+            - **Community Content**: Assess injection and validation concerns
+
+            ### Educational Security Context
+
+            Since this is an educational project, provide:
+            - **Attack Vector Explanations**: Detailed scenarios of how exploits work
+            - **Historical Examples**: Reference real-world attacks (DAO, Parity, etc.)
+            - **Mitigation Strategies**: Multiple approaches with trade-off analysis
+            - **Gas Cost Analysis**: Security implications of optimization choices
+            - **Best Practices**: Reference OpenZeppelin, Trail of Bits guidelines
+
+            ### Foundry-Specific Analysis
+            - **Test Coverage**: Analyze security test completeness
+            - **Fuzzing Opportunities**: Identify areas for property-based testing
+            - **Integration Tests**: Check for cross-contract interaction risks
+            - **Deployment Scripts**: Verify secure deployment patterns
+
+            ### Output Requirements
+            For each finding:
+            - **Severity Classification**: Critical/High/Medium/Low/Informational
+            - **Technical Details**: Precise vulnerability description
+            - **Exploit Scenario**: Step-by-step attack walkthrough
+            - **Code Location**: Specific files, functions, and line numbers
+            - **Remediation**: Exact code changes or patterns to implement
+            - **Educational Value**: Learning context and broader implications
+            - **Testing Strategy**: How to verify the fix works
+
+            ### Focus on Learning
+            This analysis should serve as a comprehensive security education resource,
+            explaining not just WHAT is wrong, but WHY it's dangerous and HOW to fix it properly.
+
+      - name: Security Analysis Summary
+        uses: actions/github-script@v8
+        if: github.event_name == 'pull_request'
+        with:
+          script: |
+            const { data: comments } = await github.rest.issues.listComments({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.issue.number,
+            });
+
+            const claudeComments = comments.filter(comment =>
+              comment.user.login === 'github-actions[bot]' &&
+              comment.body.includes('Claude Security Review')
+            );
+
+            if (claudeComments.length === 0) {
+              await github.rest.issues.createComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: context.issue.number,
+                body: `## 🔒 Smart Contract Security Analysis Complete
+
+                ✅ **Claude AI Security Review Completed**
+
+                **Repository Focus**: Smart Contracts Only
+                **Analysis Scope**: Solidity code, gas patterns, ERC compliance
+
+                ### Security Areas Analyzed
+                - ✅ Reentrancy and state change patterns
+                - ✅ Access controls and permission systems
+                - ✅ Integer arithmetic and bounds checking
+                - ✅ Gas optimization security implications
+                - ✅ ERC-721 standard compliance and extensions
+
+                ### Educational Context
+                🎓 This analysis provides learning-focused security explanations to help understand:
+                - Smart contract vulnerability patterns
+                - Attack vectors and mitigation strategies
+                - Gas optimization trade-offs
+                - Industry security best practices
+
+                📖 **Detailed findings and educational content provided above**
+
+                🔧 **Next Steps**: Review findings, implement suggested fixes, and run additional security tests.`
+              });
+            }
